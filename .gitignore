@@ -1,0 +1,25 @@
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Build outputs
+frontend/dist/
+frontend/dist-ssr/
+
+# Python
+backend/*.pyc
+backend/__pycache__/
+
+# Environment variables
+backend/.env
+*.local
+
+# Database
+backend/db.sqlite3
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
