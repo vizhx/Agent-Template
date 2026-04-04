@@ -37,6 +37,7 @@ class Task:
         self.conversation_history: List[LLMMessage] = []
         self.tool_registry = ToolRegistry()
         self.event_subscribers: List[asyncio.Queue] = []  # Event queue subscribers
+        self.is_busy = False
     
     async def subscribe(self) -> asyncio.Queue:
         """Subscribe to task events"""
@@ -53,6 +54,20 @@ class Task:
         """Broadcast event to all subscribers"""
         for queue in self.event_subscribers:
             await queue.put(event)
+            
+    async def _update_task_status(self, is_busy: bool):
+        """Update the is_busy state and broadcast the change."""
+        self.is_busy = is_busy
+        await self._broadcast_event({
+            "type": "task_status",
+            "is_busy": is_busy,
+            "ts": int(time.time() * 1000)
+        })
+
+    async def interrupt(self):
+        """Interrupt the current LLM generation stream."""
+        await self._update_task_status(False)
+        return True
     
     @classmethod
     def create(cls, user_id: str, title: str) -> 'Task':
@@ -76,6 +91,19 @@ class Task:
             data={"interactions": []}
         )
         
+        return cls(str(task_model.id), user_id, title, str(interaction_record.id), task_model.created_at, task_model.updated_at)
+    
+    @classmethod
+    async def acreate(cls, user_id: str, title: str) -> 'Task':
+        """
+        Create a new task asynchronously and save to DB.
+        """
+        task_model = await TaskModel.objects.acreate(user_id=user_id, title=title)
+        interaction_record = await InteractionRecord.objects.acreate(
+            task=task_model,
+            ts=int(time.time() * 1000),
+            data={"interactions": []}
+        )
         return cls(str(task_model.id), user_id, title, str(interaction_record.id), task_model.created_at, task_model.updated_at)
     
     @classmethod
@@ -119,6 +147,15 @@ class Task:
         Args:
             content: User message content
         """
+        if self.is_busy:
+            await self._broadcast_event({
+                "type": "error",
+                "error": "Task is already busy processing."
+            })
+            return
+            
+        await self._update_task_status(True)
+        
         # Add user message to conversation
         user_msg = LLMMessage(role="user", content=content)
         self.conversation_history.append(user_msg)
@@ -163,6 +200,9 @@ class Task:
                     if chunk_type == "tool_approval_request":
                         should_stop = True
                         break
+                        
+                    if chunk_type == "assistant_complete":
+                        should_stop = True
                     
                     # If tool was executed, break to restart stream (unless it's complete_task)
                     if chunk_type == "tool_executed":
@@ -180,6 +220,8 @@ class Task:
                 "type": "error",
                 "error": str(error)
             })
+        finally:
+            await self._update_task_status(False)
     
     async def stream_llm_response(self) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -198,6 +240,23 @@ class Task:
             messages=self.conversation_history,
             system_prompt=system_prompt
         ):
+            if not self.is_busy:
+                parsed_blocks = parse_assistant_message(accumulated_content)
+                assistant_msg = LLMMessage(role="assistant", content=accumulated_content)
+                self.conversation_history.append(assistant_msg)
+                await self._save_interaction({
+                    "type": "assistant_message",
+                    "content": accumulated_content,
+                    "parsed_content": parsed_blocks,
+                    "ts": int(time.time() * 1000)
+                })
+                yield {
+                    "type": "assistant_complete",
+                    "content": accumulated_content,
+                    "parsed_content": parsed_blocks
+                }
+                break
+
             accumulated_content += chunk.content
             
             # Parse the accumulated content to get structured blocks
@@ -346,6 +405,15 @@ class Task:
             tool_call_id: Tool call ID
             approved: Whether the tool was approved
         """
+        if self.is_busy:
+            await self._broadcast_event({
+                "type": "error",
+                "error": "Task is already busy processing."
+            })
+            return
+            
+        await self._update_task_status(True)
+        
         if not self.pending_tool_request:
             await self._broadcast_event({
                 "type": "error",
@@ -375,7 +443,7 @@ class Task:
             # Add tool result to conversation history (unless it's complete_task)
             if not is_complete_task:
                 tool_result_msg = LLMMessage(
-                    role="assistant",
+                    role="user",
                     content=f"Tool '{tool_block['name']}' result: {tool_result}"
                 )
                 self.conversation_history.append(tool_result_msg)
@@ -399,7 +467,7 @@ class Task:
         else:
             # Tool was rejected - add rejection to conversation history
             rejection_msg = LLMMessage(
-                role="assistant",
+                role="user",
                 content=f"Tool '{tool_block['name']}' was rejected by the user. Please proceed without executing this tool."
             )
             self.conversation_history.append(rejection_msg)
@@ -412,7 +480,7 @@ class Task:
                 "approved": False,
                 "ts": int(time.time() * 1000)
             })
-        
+            
         # Clear the pending tool request
         self.pending_tool_request = None
         
@@ -489,7 +557,7 @@ class Task:
 
     async def get_messages(self) -> List[Dict[str, Any]]:
         """
-        Get all interactions formatted as frontend Messages.
+        Get all interactions formatted as frontend Messages with blocks.
         """
         interactions = await self.get_interactions()
         messages = []
@@ -506,47 +574,49 @@ class Task:
             if interaction["type"] == "user_message":
                 messages.append({
                     "id": msg_id,
-                    "task_id": self.id,
                     "sender": "user",
-                    "content": interaction.get("content", ""),
                     "timestamp": ts,
-                    "tool_calls": []
+                    "blocks": [{
+                        "type": "text",
+                        "content": interaction.get("content", "")
+                    }]
                 })
                 last_assistant_msg = None
             
             elif interaction["type"] == "assistant_message":
-                # Check for tool definitions in parsed_content
-                tool_calls = []
-                if "parsed_content" in interaction:
-                    for idx, block in enumerate(interaction["parsed_content"]):
-                        if block["type"] == "tool_use":
-                            tool_calls.append({
-                                "id": f"call_{msg_id}_{idx}",
-                                "name": block.get("name", ""),
-                                "input": block.get("params", {}),
-                                "status": "pending" 
-                            })
+                blocks = []
+                parsed_content = interaction.get("parsed_content", [])
+                for block in parsed_content:
+                    if block["type"] == "text":
+                        blocks.append({
+                            "type": "text",
+                            "content": block.get("content", block.get("text", ""))
+                        })
+                    elif block["type"] == "tool_use":
+                        blocks.append({
+                            "type": "tool_use",
+                            "name": block.get("name", ""),
+                            "params": block.get("params", {}),
+                            "partial": block.get("partial", False),
+                            "status": "pending"
+                        })
                 
                 msg = {
                     "id": msg_id,
-                    "task_id": self.id,
                     "sender": "agent",
-                    "content": interaction.get("content", ""),
                     "timestamp": ts,
-                    "tool_calls": tool_calls
+                    "blocks": blocks
                 }
                 messages.append(msg)
                 last_assistant_msg = msg
             
             elif interaction["type"] == "tool_result":
-                # Find matching tool call in last_assistant_msg
-                if last_assistant_msg and last_assistant_msg["tool_calls"]:
-                    found = False
-                    for tc in last_assistant_msg["tool_calls"]:
-                        if tc["name"] == interaction.get("tool_name") and tc["status"] == "pending":
-                            tc["status"] = "executed"
-                            tc["result"] = str(interaction.get("result", ""))
-                            found = True
+                # Update the status and result in the corresponding tool block of the last assistant message
+                if last_assistant_msg:
+                    for block in last_assistant_msg["blocks"]:
+                        if block["type"] == "tool_use" and block["name"] == interaction.get("tool_name") and block.get("status") == "pending":
+                            block["status"] = "executed"
+                            block["result"] = str(interaction.get("result", ""))
                             break
         
         return messages

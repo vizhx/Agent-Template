@@ -12,7 +12,7 @@ class GeminiProvider(LLMProvider):
     Handles streaming responses from Gemini API.
     """
     
-    def __init__(self, api_key: str, model: str = "gemini-3.0-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-2-flash-preview"):
         if not api_key:
             raise ValueError("Gemini API key is required")
         
@@ -58,6 +58,7 @@ class GeminiProvider(LLMProvider):
                     self.model_name,
                     system_instruction=system_prompt
                 )
+                print("[debug] formatted messages: ", formatted_messages)
                 chat = self.model.start_chat(history=formatted_messages[:-1] if len(formatted_messages) > 1 else [])
             
             # Stream the response
@@ -68,11 +69,16 @@ class GeminiProvider(LLMProvider):
             )
             
             async for chunk in response:
-                if chunk.text:
-                    yield LLMResponseChunk(
-                        content=chunk.text,
-                        is_complete=False
-                    )
+                try:
+                    print("[debug] chunk: ", chunk)
+                    text = chunk.text
+                    if text:
+                        yield LLMResponseChunk(
+                            content=text,
+                            is_complete=False
+                        )
+                except Exception:
+                    continue
             
             # Signal completion
             yield LLMResponseChunk(

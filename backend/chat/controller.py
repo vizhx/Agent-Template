@@ -15,7 +15,7 @@ class Controller:
     def __init__(self):
         self.active_tasks: Dict[str, Task] = {}
     
-    def create_task(self, user_id: str, title: str) -> Dict[str, Any]:
+    async def create_task(self, user_id: str, title: str) -> Dict[str, Any]:
         """
         Create a new task and return its details.
         
@@ -26,7 +26,7 @@ class Controller:
         Returns:
             Dictionary with task details
         """
-        task = Task.create(user_id, title)
+        task = await Task.acreate(user_id, title)
         self.active_tasks[task.id] = task
         return task.to_dict()
     
@@ -71,6 +71,19 @@ class Controller:
         """
         task = await self.get_task(task_id)
         await task.handle_tool_approval(tool_call_id, approved)
+    
+    async def interrupt_task_async(self, task_id: str) -> bool:
+        """
+        Interrupt a running task generation.
+        
+        Args:
+            task_id: Task ID
+            
+        Returns:
+            True if interrupted successfully
+        """
+        task = await self.get_task(task_id)
+        return await task.interrupt()
     
     
     async def get_tasks_for_user(self, user_id: str) -> list:

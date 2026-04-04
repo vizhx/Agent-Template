@@ -33,7 +33,7 @@ class TaskViewSet(ViewSet):
         if not title:
             return Response({"error": "Title is required"}, status=status.HTTP_400_BAD_REQUEST)
         
-        task_data = controller.create_task(user_id, title)
+        task_data = await controller.create_task(user_id, title)
         return Response(task_data, status=status.HTTP_201_CREATED)
     
     async def retrieve(self, request: HttpRequest, pk: str = None):
@@ -79,6 +79,15 @@ class TaskViewSet(ViewSet):
         try:
             asyncio.create_task(controller.approve_tool_async(pk, tool_call_id, approved))
             return Response({"status": "tool approval processed"}, status=status.HTTP_202_ACCEPTED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'])
+    async def interrupt(self, request: HttpRequest, pk: str = None):
+        """Interrupt the agent generation for a specific task."""
+        try:
+            success = await controller.interrupt_task_async(pk)
+            return Response({"status": "interrupted" if success else "failed"})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

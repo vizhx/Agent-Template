@@ -7,7 +7,7 @@ class ContentManager:
     """
     Manages global content state, persists it to a file, and broadcasts updates.
     """
-    def __init__(self, content_file_path: str = "scenic_places.txt"):
+    def __init__(self, content_file_path: str = "scenic_places.md"):
         self.content_file_path = content_file_path  # Django runs from backend dir, so no need to add 'backend' prefix
         self.current_content: str = self._load_initial_content()
         self.subscribers: Set[asyncio.Queue] = set() # For SSE streaming

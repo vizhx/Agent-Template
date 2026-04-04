@@ -8,42 +8,34 @@ def get_system_prompt(base_prompt: Optional[str] = None) -> str:
     tool_registry = ToolRegistry()
     tools = tool_registry.get_all_tools().values() # Get all tool instances
 
-    tool_descriptions = ""
+    tool_descriptions = """Inorder to call any tool, Follow the below rules:
+    1. You MUST use the exact XML tags defined below. Do NOT use JSON or any other format.
+    2. Always include both the opening and closing tags for the tool and its parameters.
+    3. The root of the xml should be the tool name, and the parameters should be the child elements of the root element.
+    4. You can ONLY call ONE tool at a time. Never attempt to combine multiple tools in a single response block. 
+    Stop your response immediately after the closing tag and  wait for the user to respond with the tool result.
+    Below is the format:
+    <tool_name>
+    <param1_name>param1_value</param1_name>
+    <param2_name>param2_value</param2_name>
+    ... 
+    </tool_name>
+    
+    """
     if tools:
-        tool_descriptions = "\n\nYou have access to the following tools:\n"
+        tool_descriptions += "You have access to the following tools:\n"
         for tool in tools:
-            tool_dict = tool.to_tool_dict() # Use the new method
-            tool_descriptions += f"<tool_description>\n"
-            tool_descriptions += f"<tool_name>{tool_dict['tool_schema']['name']}</tool_name>\n"
-            tool_descriptions += f"<description>{tool_dict['tool_schema']['description']}</description>\n"
-            tool_descriptions += f"<parameters>\n"
-            tool_descriptions += f"{tool_dict['tool_schema']['input_schema']}\n"
-            tool_descriptions += f"</parameters>\n"
-            tool_descriptions += f"</tool_description>\n"
+            tool_dict = tool.to_tool_dict()
+            tool_descriptions += f"<{tool_dict['tool_schema']['name']}>\n"
+            tool_descriptions += f"  <description>{tool_dict['tool_schema']['description']}</description>\n"
+            
+            params = tool_dict['tool_schema']['input_schema'].get('properties', {})
+            for param_name, param_info in params.items():
+                tool_descriptions += f"  <{param_name}>[{param_info.get('description', '')}]</{param_name}>\n"
+            
+            tool_descriptions += f"</{tool_dict['tool_schema']['name']}>\n\n"
 
-        tool_descriptions += (
-            "\n\n"
-            "You can use tools by enclosing a tool_code block in <tool_code> and </tool_code> tags.\n"
-            "Inside the tool_code block, use <tool_name> and <parameters> tags.\n"
-            "The parameters should be a JSON object with keys matching the tool's input_schema.\n"
-            "Example:\n"
-            "<tool_code>\n"
-            "<tool_name>tool_name_here</tool_name>\n"
-            "<parameters>\n"
-            "{{ \"param1\": \"value1\", \"param2\": \"value2\" }}\n"
-            "</parameters>\n"
-            "</tool_code>\n"
-            "\n"
-            "You must use the `complete_task` tool when you have finished the task and have a final answer or result for the user. "
-            "The `complete_task` tool takes a `summary` parameter which should be a concise summary of the task's outcome.\n"
-            "Example:\n"
-            "<tool_code>\n"
-            "<tool_name>complete_task</tool_name>\n"
-            "<parameters>\n"
-            "{{ \"summary\": \"The task is complete. Here is the final result.\" }}\n"
-            "</parameters>\n"
-            "</tool_code>\n"
-        )
+        
 
     default_base_prompt = (
         "You are a helpful AI assistant, who is tasked with helping the user with the creation of a document. "
@@ -54,5 +46,4 @@ def get_system_prompt(base_prompt: Optional[str] = None) -> str:
 
     final_prompt = base_prompt if base_prompt else default_base_prompt
     final_prompt += tool_descriptions
-
     return final_prompt

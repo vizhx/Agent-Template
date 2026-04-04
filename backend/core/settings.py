@@ -157,4 +157,4 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 # LLM Provider selection - change this to switch providers
 # Options: 'anthropic' or 'gemini'
 LLM_PROVIDER = 'gemini'
-GEMINI_MODEL = 'gemini-2.5-flash'
+GEMINI_MODEL = 'gemini-3-flash-preview'

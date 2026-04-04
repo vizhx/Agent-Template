@@ -10,7 +10,7 @@ class BaseTool(ABC):
         self.description: str = ""
         self.parameters: Dict[str, Any] = {}
         self.needs_approval: bool = False
-        self.show_preview: Optional[Callable] = None
+        self.show_preview: bool = False
 
 
     def requires_approval(self) -> bool:
@@ -20,10 +20,10 @@ class BaseTool(ABC):
     async def preview(self, args: Dict, task_id: str) -> Any:
         """
         Generates a preview of the tool's effect without actually executing it.
-        This method is optional and only called if `show_preview` is set.
+        This method is optional and only called if the concrete class implements `_show_preview`.
         """
-        if self.show_preview:
-            return await self.show_preview(args, task_id)
+        if hasattr(self, '_show_preview'):
+            return await getattr(self, '_show_preview')(args, task_id)
         return None
 
     @abstractmethod

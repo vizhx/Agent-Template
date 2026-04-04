@@ -8,8 +8,8 @@ class EditContentTool(BaseTool):
     """
     def __init__(self):
         super().__init__()
-        self.name="edit_content",
-        self.description="Edit the global content. This requires user approval.",
+        self.name="edit_content"
+        self.description="Edit the global content. This requires user approval."
         self.parameters={
             "type": "object",
             "properties": {
@@ -19,11 +19,11 @@ class EditContentTool(BaseTool):
                 }
             },
             "required": ["newContent"]
-        },
-        self.needs_approval=True,
-        self.show_preview=self._show_preview
+        }
+        self.needs_approval=True
+        self.show_preview=True
 
-    async def _show_preview(args: Dict, task_id: str):
+    async def _show_preview(self, args: Dict, task_id: str):
         """
         Generates a preview of content changes and broadcasts it.
         """
@@ -45,12 +45,12 @@ class GetCurrentContentTool(BaseTool):
     """
     def __init__(self):
         super().__init__()
-        self.name="get_current_content",
-        self.description="Get the current global content.",
+        self.name="get_current_content"
+        self.description="Get the current global content."
         self.parameters={
             "type": "object",
             "properties": {}
-        },
+        }
         self.needs_approval=False
 
     async def execute(self, args: Dict, task_id: str) -> str:
@@ -62,8 +62,8 @@ class CompleteTaskTool(BaseTool):
     """
     def __init__(self):
         super().__init__()
-        self.name="complete_task",
-        self.description="Mark the current task as complete and provide a summary of the outcome.",
+        self.name="complete_task"
+        self.description="Mark the current task as complete and provide a summary of the outcome."
         self.parameters={
             "type": "object",
             "properties": {
@@ -73,7 +73,7 @@ class CompleteTaskTool(BaseTool):
                 }
             },
             "required": ["summary"]
-        },
+        }
         self.needs_approval=False
         
 
