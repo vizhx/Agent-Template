@@ -8,6 +8,7 @@ export interface Task {
     id: string;
     title: string;
     status: 'active' | 'completed' | 'archived';
+    is_busy?: boolean;
     created_at: string;
     updated_at: string;
     messages: Message[];
@@ -17,12 +18,9 @@ export type MessageSender = 'user' | 'agent';
 
 export interface Message {
     id: string;
-    task_id: string;
     sender: MessageSender;
-    content: string;
     timestamp: string;
-    metadata?: Record<string, unknown>;
-    tool_calls?: ToolCall[];
+    blocks: ParsedContentBlock[];
 }
 
 export interface ToolCall {
@@ -42,9 +40,31 @@ export interface Content {
     created_at: string;
 }
 
+export interface ParsedContentBlock {
+    type: string;
+    content?: string;
+    name?: string;
+    params?: Record<string, unknown>;
+    partial?: boolean;
+    id?: string;
+    status?: 'pending' | 'executed' | 'failed';
+    result?: string;
+}
+
 export interface TaskEvent {
-    type: 'user_message' | 'assistant_chunk' | 'assistant_complete' | 'tool_approval_request' | 'tool_executed' | 'error';
-    payload: any;
+    type: 'user_message' | 'assistant_chunk' | 'assistant_complete' | 'tool_approval_request' | 'tool_executed' | 'tool_result_message' | 'task_status' | 'error';
+    content?: string;
+    is_busy?: boolean;
+    parsed_content?: ParsedContentBlock[];
+    tool_call?: {
+        id: string;
+        name: string;
+        input: Record<string, unknown>;
+    };
+    tool_name?: string;
+    result?: string;
+    is_complete?: boolean;
+    error?: string;
 }
 
 export interface ContentEvent {

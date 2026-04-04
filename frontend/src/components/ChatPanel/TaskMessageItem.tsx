@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Message } from '../../types';
-import { Check, X, Wrench } from 'lucide-react';
+import { Check, X, Wrench, Loader2 } from 'lucide-react';
 
 interface TaskMessageItemProps {
     message: Message;
@@ -13,35 +13,45 @@ interface TaskMessageItemProps {
 }
 
 const TaskMessageItem: React.FC<TaskMessageItemProps> = ({ message, onToolApproval, pendingToolApproval }) => {
-    const isUser = message.sender === 'user';
-
     return (
-        <div className={`p-3 rounded-lg ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
-            <div className="whitespace-pre-wrap text-sm">{message.content}</div>
-
-            {/* Tool Calls Display */}
-            {message.tool_calls && message.tool_calls.length > 0 && (
-                <div className="mt-2 flex flex-col gap-2">
-                    {message.tool_calls.map((toolCall) => (
-                        <div key={toolCall.id} className="bg-secondary/50 p-2 rounded text-xs">
-                            <div className="flex items-center gap-1 font-semibold">
-                                <Wrench size={12} />
-                                {toolCall.name}
+        <div className="flex flex-col gap-2">
+            {message.blocks?.map((block, idx) => {
+                if (block.type === 'text') {
+                    if (!block.content?.trim()) return null;
+                    return (
+                        <div key={idx} className="whitespace-pre-wrap break-words text-sm">
+                            {block.content.trim()}
+                        </div>
+                    );
+                }
+                
+                if (block.type === 'tool_use') {
+                    return (
+                        <div key={idx} className="bg-secondary/50 px-3 py-2 rounded text-xs flex flex-col gap-1 font-medium">
+                            <div className="flex items-center gap-2">
+                                <Wrench size={12} className="text-muted-foreground" />
+                                <span className={block.status === 'pending' ? 'animate-pulse text-muted-foreground' : ''}>
+                                    {block.name || 'Using tool...'}
+                                </span>
+                                {block.status === 'pending' && <Loader2 size={10} className="animate-spin text-muted-foreground" />}
                             </div>
-                            <pre className="mt-1 overflow-x-auto bg-background/50 p-1 rounded">
-                                {JSON.stringify(toolCall.input, null, 2)}
-                            </pre>
-                            {toolCall.result && (
-                                <div className="mt-1 text-muted-foreground border-t border-border/50 pt-1">
-                                    Result: {toolCall.result.substring(0, 100)}...
+                            {(block.status === 'pending' || !block.status) && block.params && Object.keys(block.params).length > 0 && (
+                                <div className="text-[10px] text-muted-foreground font-mono mt-1 w-full truncate opacity-70">
+                                    {JSON.stringify(block.params)}
+                                </div>
+                            )}
+                            {block.status === 'executed' && block.result && (
+                                <div className="text-[10px] text-muted-foreground mt-1 border-t border-border/50 pt-1">
+                                    Result: {block.result.length > 200 ? block.result.substring(0, 200) + '...' : block.result}
                                 </div>
                             )}
                         </div>
-                    ))}
-                </div>
-            )}
+                    );
+                }
+                return null;
+            })}
 
-            {/* Pending Tool Approval */}
+            {/* Pending Tool Approval (Always at bottom) */}
             {pendingToolApproval && onToolApproval && (
                 <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded">
                     <div className="text-xs font-semibold text-yellow-600 dark:text-yellow-400 mb-1">

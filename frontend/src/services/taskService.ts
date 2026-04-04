@@ -21,5 +21,9 @@ export const sendMessageToTask = async (content: string, taskId: string): Promis
 };
 
 export const approveToolCall = async (taskId: string, toolCallId: string, approved: boolean): Promise<void> => {
-    await api.post(`/api/tasks/${taskId}/tool-approval/`, { toolCallId, approved });
+    await api.post(`/api/tasks/${taskId}/approve-tool/`, { toolCallId, approved });
+};
+
+export const interruptTask = async (taskId: string): Promise<void> => {
+    await api.post(`/api/tasks/${taskId}/interrupt/`);
 };

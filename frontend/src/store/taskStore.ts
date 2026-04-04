@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { Task, Message, TaskEvent } from '../types';
 import * as taskService from '../services/taskService';
@@ -23,6 +23,7 @@ interface TaskState {
     syncWithBackend: () => Promise<void>;
     loadTasks: () => Promise<Task[]>;
     approveToolCall: (toolCallId: string, approved: boolean) => Promise<void>;
+    interruptTask: (taskId: string) => Promise<void>;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => ({
@@ -44,8 +45,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
                 const data = JSON.parse(event.data);
                 handleTaskEvent(data, set, get);
             });
-        } catch (error: any) {
-            set({ error: error.message, isLoading: false });
+        } catch (error: unknown) {
+            set({ error: error instanceof Error ? error.message : String(error), isLoading: false });
         }
     },
 
@@ -61,8 +62,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
                 const data = JSON.parse(event.data);
                 handleTaskEvent(data, set, get);
             });
-        } catch (error: any) {
-            set({ error: error.message, isLoading: false });
+        } catch (error: unknown) {
+            set({ error: error instanceof Error ? error.message : String(error), isLoading: false });
         }
     },
 
@@ -79,22 +80,21 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
         const userMessage: Message = {
             id: uuidv4(),
-            task_id: currentTask.id,
             sender: 'user',
-            content,
             timestamp: new Date().toISOString(),
+            blocks: [{ type: 'text', content }]
         };
 
         set((state) => ({
             currentTask: state.currentTask
-                ? { ...state.currentTask, messages: [...state.currentTask.messages, userMessage] }
+                ? { ...state.currentTask, is_busy: true, messages: [...state.currentTask.messages, userMessage] }
                 : null,
         }));
 
         try {
             await taskService.sendMessageToTask(content, currentTask.id);
-        } catch (error: any) {
-            set({ error: error.message });
+        } catch (error: unknown) {
+            set({ error: error instanceof Error ? error.message : String(error) });
         }
     },
 
@@ -136,41 +136,54 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         const { currentTask } = get();
         if (!currentTask) return;
 
-        set({ pendingToolApproval: null });
+        set((state) => ({
+            pendingToolApproval: null,
+            currentTask: state.currentTask ? { ...state.currentTask, is_busy: approved } : null,
+        }));
         try {
             await taskService.approveToolCall(currentTask.id, toolCallId, approved);
-        } catch (error: any) {
-            set({ error: error.message });
+        } catch (error: unknown) {
+            set({ error: error instanceof Error ? error.message : String(error) });
+        }
+    },
+
+    interruptTask: async (taskId: string) => {
+        try {
+            await taskService.interruptTask(taskId);
+        } catch (error: unknown) {
+            console.error('Failed to interrupt task:', error);
         }
     },
 }));
 
-const handleTaskEvent = (event: TaskEvent, set: any, get: any) => {
+const handleTaskEvent = (event: TaskEvent, set: StoreApi<TaskState>['setState'], get: StoreApi<TaskState>['getState']) => {
     const { currentTask, currentAgentMessageId } = get();
     if (!currentTask) return;
-
+    console.log('handleTaskEvent', event);
     switch (event.type) {
-        case 'assistant_chunk':
+        case 'assistant_chunk': {
+            const blocks = (event.parsed_content || []).map(block => ({
+                ...block,
+                status: block.type === 'tool_use' ? 'pending' : undefined
+            })) as any[];
+
             if (currentAgentMessageId) {
-                // Update existing message
                 set((state: TaskState) => ({
                     currentTask: state.currentTask ? {
                         ...state.currentTask,
                         messages: state.currentTask.messages.map(msg =>
                             msg.id === currentAgentMessageId
-                                ? { ...msg, content: msg.content + event.payload.content }
+                                ? { ...msg, blocks }
                                 : msg
                         )
                     } : null
                 }));
             } else {
-                // Create new message
                 const newMessage: Message = {
                     id: uuidv4(),
-                    task_id: currentTask.id,
                     sender: 'agent',
-                    content: event.payload.content,
                     timestamp: new Date().toISOString(),
+                    blocks
                 };
                 set((state: TaskState) => ({
                     currentAgentMessageId: newMessage.id,
@@ -181,27 +194,85 @@ const handleTaskEvent = (event: TaskEvent, set: any, get: any) => {
                 }));
             }
             break;
+        }
 
         case 'assistant_complete':
-            set({ currentAgentMessageId: null });
+            set((state) => ({
+                currentAgentMessageId: null,
+                currentTask: state.currentTask ? { ...state.currentTask, is_busy: false } : null,
+            }));
             break;
 
         case 'tool_approval_request':
-            set({
-                pendingToolApproval: {
-                    toolCallId: event.payload.tool_call_id,
-                    toolName: event.payload.tool_name,
-                    input: event.payload.tool_args,
+            // Clear currentAgentMessageId so the next chunk starts a new message block
+            // Also unset is_busy since we are waiting on the user
+            if (event.tool_call) {
+                set((state) => ({
+                    currentAgentMessageId: null,
+                    currentTask: state.currentTask ? { ...state.currentTask, is_busy: false } : null,
+                    pendingToolApproval: {
+                        toolCallId: event.tool_call!.id,
+                        toolName: event.tool_call!.name,
+                        input: event.tool_call!.input,
+                    }
+                }));
+            } else if (event.parsed_content) {
+                const toolBlock = event.parsed_content.find(b => b.type === 'tool_use');
+                if (toolBlock) {
+                    set((state) => ({
+                        currentAgentMessageId: null,
+                        currentTask: state.currentTask ? { ...state.currentTask, is_busy: false } : null,
+                        pendingToolApproval: {
+                            toolCallId: toolBlock.id || 'pending', // Fallback if backend doesn't provide ID
+                            toolName: toolBlock.name || '',
+                            input: toolBlock.params || {},
+                        }
+                    }));
                 }
-            });
+            }
             break;
 
         case 'tool_executed':
-            // Handle tool execution result display if needed
+            set((state: TaskState) => {
+                if (!state.currentTask) return state;
+
+                const updatedMessages = state.currentTask.messages.map(msg => {
+                    if (msg.sender === 'agent') {
+                        return {
+                            ...msg,
+                            blocks: msg.blocks.map(block =>
+                                block.type === 'tool_use' && block.name === event.tool_name && block.status === 'pending'
+                                    ? { ...block, status: 'executed' as const, result: event.result }
+                                    : block
+                            )
+                        };
+                    }
+                    return msg;
+                });
+
+                return {
+                    currentAgentMessageId: null,
+                    currentTask: {
+                        ...state.currentTask,
+                        messages: updatedMessages
+                    }
+                };
+            });
+            break;
+
+        case 'task_status':
+            if (event.is_busy !== undefined) {
+                set((state: TaskState) => ({
+                    currentTask: state.currentTask ? { ...state.currentTask, is_busy: event.is_busy } : null
+                }));
+            }
             break;
 
         case 'error':
-            set({ error: event.payload.message });
+            set((state) => ({
+                error: event.error || 'Unknown error',
+                currentTask: state.currentTask ? { ...state.currentTask, is_busy: false } : null,
+            }));
             break;
     }
 };

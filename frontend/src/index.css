@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
   --background: oklch(0.9529 0.0146 102.4597);
@@ -159,4 +160,38 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
+}
+
+.prose {
+  color: var(--foreground);
+}
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  color: var(--foreground);
+}
+.prose strong {
+  color: var(--foreground);
+}
+.prose a {
+  color: var(--primary);
+}
+.prose code {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+.prose pre {
+  background-color: var(--muted);
+}
+.prose pre code {
+  background-color: transparent;
+}
+.prose blockquote {
+  color: var(--muted-foreground);
+  border-left-color: var(--border);
+}
+.prose ul > li::marker,
+.prose ol > li::marker {
+  color: var(--muted-foreground);
+}
+.prose hr {
+  border-color: var(--border);
 }

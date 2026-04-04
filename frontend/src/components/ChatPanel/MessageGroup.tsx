@@ -27,7 +27,7 @@ const MessageGroup: React.FC<MessageGroupProps> = ({ messages, sender, onToolApp
                         <span>{isUser ? 'You' : 'Agent'}</span>
                         <span>{new Date(messages[0].timestamp).toLocaleTimeString()}</span>
                     </div>
-                    <div className={`flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-3 rounded-lg ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'} overflow-hidden max-w-full flex flex-col gap-4 shadow-sm`}>
                         {messages.map((message, index) => (
                             <TaskMessageItem
                                 key={message.id}
